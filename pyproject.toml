@@ -18,5 +18,8 @@ container-status-importer = "container_status_importer.importer:main"
 requires = ["setuptools>=80"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.package-data]
+container_status_importer = ["templates/*.txt"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

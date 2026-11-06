@@ -1,0 +1,11 @@
+Subject: [nne-container-status-importer] batch failed on $host
+
+Batch nne-container-status-importer failed on $host
+
+Started: $started
+Failed:  $failed
+Runtime: $runtime
+Command: $command
+Error:   $error
+
+$traceback
