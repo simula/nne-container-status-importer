@@ -1,12 +1,42 @@
 # Development
 
+## Development on macOS (localhost)
+
+Checked on macOS 26.5 (Apple silicon) with Anaconda: environment created from `environment.yml`, 25 tests passed.
+
+### Prerequisites
+
+- conda ([Anaconda](https://www.anaconda.com/download) or [Miniforge](https://conda-forge.org/download/)) and
+  [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running)
+- an SSH key with access to `simula/nnedbtools` on GitHub, check with `ssh -T git@github.com`
+- for the local full import only: the VPN and SSH access to oculus, check with `ssh oculus true`
+
+### Setup
+
+```sh
+git clone git@github.com:simula/nne-container-status-importer.git
+cd nne-container-status-importer
+conda env create -f environment.yml
+conda activate nne-container-status-importer
+container-status-importer --help
+```
+
+`environment.yml` takes Python 3.14.4 from conda-forge and installs the project with pip, editable and with the test
+dependencies (`-e ".[test]"`): changes in `src/` take effect without reinstalling. The dependencies are defined only in
+`pyproject.toml`; nnedbtools comes from the tag pinned there. Another tag: change it and run `pip install -e ".[test]"`
+in the activated environment.
+
+Visual Studio Code: select the interpreter of the conda environment `nne-container-status-importer` (Python: Select
+Interpreter) and pytest in the Testing view; pytest reads its settings from `pyproject.toml` (`tests/`).
+
 ## Local test database
 
 A local MariaDB in Docker (same server version as production, 10.11.14) on `127.0.0.1:23307`, schema `report_test`. Own
 compose project, container and port, so it runs next to the nnedbtools test database (23306):
 
 ```sh
-docker compose --file docker/db.compose.yaml up --detach --wait
+docker compose --file docker/db.compose.yaml up --detach --wait     # start
+docker compose --file docker/db.compose.yaml down                   # stop (the data stays in the volume)
 ```
 
 The database settings are in `.db_env_test` (git-ignored) in the repository root; every host points at the local
@@ -33,29 +63,21 @@ REPORT_DB_ROOT_PASSWORD =password
 ## Tests
 
 ```sh
-uv pip install --python .venv/bin/python -e ".[test]"
-.venv/bin/python -m pytest
+python -m pytest     # in the activated environment
 ```
 
-- `tests/test_importer.py`: parsing, thread to process mapping, BAD and LEAVE files, file selection and order, files
-  kept by a dry run and a failed write; no database. Test files: real heartbeat files of node 7056, 2026-11-06 09:00
-  UTC, one per container (`tests/data/7056/heartbeats/2026-11-06/`).
-- `tests/test_notification.py`: failure email from the template, recipients, headers, IPv4 connection (SMTP replaced
-  by a stand-in, no email is sent).
-- `tests/test_logging.py`: in a new process the whole log, nnedbtools included, goes to `--log-dir`.
-- `tests/test_database.py`: upsert and deletion of the GOOD files against the local test database; skipped without
-  `.db_env_test`, refuses any database other than `127.0.0.1:23307/report_test`, writes only rows of the test node 99999
-  and removes them.
+What each test checks and needs, selections and troubleshooting: [tests/RUNNING_TESTS.md](../tests/RUNNING_TESTS.md).
 
-## Local full import
+## Running the batch locally
 
-A copy of the inbox in `data/` (git-ignored), imported into the local test database:
+On a copy of the inbox in `data/` (git-ignored), never on `/nne/data`:
 
 ```sh
 rsync -a -m --include='/*/' --include='/*/heartbeats/***' --exclude='*' oculus:/nne/data/ data/
-container-status-importer --data-dir data --write .db_env_test
+container-status-importer --data-dir data                          # dry run: summary only
+container-status-importer --data-dir data --write .db_env_test     # import into the local test database
 ```
 
-Without `--log-dir` the log goes to stderr.
-
-The write deletes the imported (GOOD) files from `data/`; copy them again with rsync for another run.
+Without `--log-dir` the log goes to stderr (`--log-dir logs-local` writes `logs-local/importer.log`). The write deletes
+the imported (GOOD) files from `data/`; copy them again with rsync for another run. The full import (about 1.6 million
+files) takes about 5 minutes.

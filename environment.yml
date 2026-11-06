@@ -1,0 +1,10 @@
+# Development environment on macOS: conda provides Python, pip installs the project editable with nnedbtools and pytest
+# (dependencies defined in pyproject.toml). Create: conda env create -f environment.yml
+name: nne-container-status-importer
+channels:
+  - conda-forge
+dependencies:
+  - python=3.14.4
+  - pip
+  - pip:
+      - -e ".[test]"
