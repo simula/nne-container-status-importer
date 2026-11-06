@@ -20,12 +20,38 @@ from math import floor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from nnedbtools.argumentations import HeartbeatUpdate, update_heartbeat_status
+import nnedbtools.connection as con
+import nnedbtools.tables as tb
 from nnedbtools.enums import DockerContainer
 from nnedbtools.identityprovider import load_from_enviroment
 from nnedbtools.utils import dt_functions
+from sqlalchemy.dialects.mysql import insert
 
 FILE_NAME = re.compile(r"heartbeat_(?P<container>[a-z]+)_(?P<ts>\d{8}T\d{6})\.json\.xz")
+
+
+@dataclass
+class HeartbeatUpdate:
+    """
+    Heartbeat Update Dataclass wrapper: one row of `container_rawdata`
+    """
+
+    # Node identifier
+    node_id: int
+    # Start timestamp of the container
+    start_ts: datetime
+    # Container enumeration
+    container: DockerContainer
+    # Container version (build name/tag)
+    version: str
+    # Running process name
+    process: str
+    # Last seen timestamp
+    seen_ts: datetime
+    # Uptime in seconds
+    uptime: float
+    # Extra information
+    extra: Optional[str]
 
 
 class HeartbeatFileStatus(Enum):
@@ -106,6 +132,11 @@ class HeartbeatRecord(ABC):
             else:
                 return None
         elif container == DockerContainer.NETPERFMETER:
+            if thread == "MainThread":
+                process = "container"
+            else:
+                return None
+        elif container == DockerContainer.TRACEROUTE:
             if thread == "MainThread":
                 process = "container"
             else:
@@ -246,6 +277,63 @@ def process_heartbeat_files(
             key: tuple = (update.node_id, update.start_ts, update.container, update.version, update.process)
             latest[key] = update
     return (file_counts, list(latest.values()))
+
+
+def update_heartbeat_status(updates: List[HeartbeatUpdate]) -> None:
+    """
+    Updates records in table `container_rawdata` of the report database with data contained in heartbeat updates
+
+    Args:
+        updates (List[HeartbeatUpdate]): Listing of heartbeat updates parsed from files.
+
+
+    SQL statement example:
+    ```sql
+        INSERT INTO container_rawdata (
+            node_id, start_ts, container, version, process, seen_ts, uptime, extra
+        )
+        VALUES
+            (8080, '2026-04-08 10:00:00', 'mqtt', 'locum-2-1-7', 'container', '2026-04-08 10:05:00', 12345, NULL)
+        ON DUPLICATE KEY UPDATE
+            seen_ts = VALUES(seen_ts),
+            uptime  = VALUES(uptime),
+            extra   = VALUES(extra);
+    ```
+    """
+
+    # 1. Check applicability: at least one update record
+    if len(updates) == 0:
+        logging.info(f"-- No updates provided, there is no need to update {tb.ReportContainerRawdata.__tablename__}")
+        return
+
+    # 2. Create the table if it does not exist
+    table = tb.ReportContainerRawdata
+    table.__table__.create(bind=con.engines.report_engine, checkfirst=True)
+
+    # 3. Insert all updates, ON DUPLICATE KEY UPDATE of the non-key values seen, uptime and extra
+    with con.engines.report_session as session:
+        insert_or_update_values = insert(table).values(
+            [
+                {
+                    "node_id": u.node_id,
+                    "start_ts": u.start_ts,
+                    "container": u.container.value,
+                    "version": u.version,
+                    "process": u.process,
+                    "seen_ts": u.seen_ts,
+                    "uptime": u.uptime,
+                    "extra": u.extra,
+                }
+                for u in updates
+            ]
+        )
+        insert_or_update_values = insert_or_update_values.on_duplicate_key_update(
+            seen_ts=insert_or_update_values.inserted.seen_ts,
+            uptime=insert_or_update_values.inserted.uptime,
+            extra=insert_or_update_values.inserted.extra,
+        )
+        session.execute(insert_or_update_values)
+        session.commit()
 
 
 def main(argv: Optional[List[str]] = None) -> int:

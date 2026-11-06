@@ -37,6 +37,7 @@ def _write(path: Path, record: dict) -> Path:
         ("mqtt", {("container", None), ("mqtt", None)}),
         ("netperfmeter", {("container", None)}),
         ("speedtest", {("container", None)}),
+        ("traceroute", {("container", None)}),
         (
             "udpping",
             {
@@ -56,8 +57,10 @@ def test_thread_to_process(container, processes):
     assert {(u.node_id, u.container.value) for u in updates} == {(7056, container)}
 
 
-def test_unsupported_container_is_bad():
-    assert process_heartbeat_file(_sample("traceroute")) == (HeartbeatFileStatus.BAD, None)
+def test_unsupported_container_is_bad(tmp_path):
+    record = json.loads(lzma.decompress(_sample("mqtt").read_bytes()))
+    record["container_name"] = "unknown"
+    assert process_heartbeat_file(_write(tmp_path / "a.json.xz", record)) == (HeartbeatFileStatus.BAD, None)
 
 
 @pytest.mark.parametrize(
