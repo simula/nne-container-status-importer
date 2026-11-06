@@ -10,11 +10,15 @@ import json
 import logging
 import lzma
 import re
+import smtplib
+import socket
+import sys
 import traceback
 from abc import ABC, abstractmethod
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
+from email.message import EmailMessage
 from enum import Enum
 from math import floor
 from pathlib import Path
@@ -22,6 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import nnedbtools.connection as con
 import nnedbtools.tables as tb
+from environs import Env
 from nnedbtools.enums import DockerContainer
 from nnedbtools.identityprovider import load_from_enviroment
 from nnedbtools.utils import dt_functions
@@ -462,6 +467,90 @@ def update_heartbeat_status(updates: List[HeartbeatUpdate]) -> None:
         session.commit()
 
 
+def send_failure_email(env_file: Path, recipients: List[str], started: datetime, error: BaseException) -> None:
+    """Sends the failure of a run to the recipients; a failure to send is only logged
+
+    The SMTP settings come from the env file: `SMTP_HOST`, `SMTP_PORT` (STARTTLS), `SMTP_USER` (also the sender) and
+    `SMTP_PASSWORD`.
+
+    Args:
+        env_file (Path): env file of the run (`--write`) with the SMTP settings
+        recipients (List[str]): email addresses (`--notify`)
+        started (datetime): start of the run (local time)
+        error (BaseException): exception of the failed run
+    """
+    failed: datetime = datetime.now()
+    try:
+        # 1. SMTP settings
+        env = Env()
+        env.read_env(str(env_file), recurse=False)
+        user: str = env.str("SMTP_USER")
+
+        # 2. Message with the error and its traceback
+        message = EmailMessage()
+        message["Subject"] = f"[nne-container-status-importer] batch failed on {socket.getfqdn()}"
+        message["From"] = user
+        message["To"] = ", ".join(recipients)
+        message.set_content(
+            "\n".join(
+                [
+                    f"Batch nne-container-status-importer failed on {socket.getfqdn()}",
+                    "",
+                    f"Started: {started}",
+                    f"Failed:  {failed}",
+                    f"Runtime: {failed - started}",
+                    f"Command: {' '.join(sys.argv)}",
+                    f"Error:   {type(error).__name__}: {error}",
+                    "",
+                    "".join(traceback.format_exception(error)),
+                ]
+            )
+        )
+
+        # 3. Send over STARTTLS with login
+        with smtplib.SMTP(env.str("SMTP_HOST"), env.int("SMTP_PORT"), timeout=30) as smtp:
+            smtp.starttls()
+            smtp.login(user, env.str("SMTP_PASSWORD"))
+            smtp.send_message(message)
+        logging.info(f"-- Failure email sent to {', '.join(recipients)}")
+    except Exception as mail_error:
+        logging.error(f"-- Failure email could not be sent: {mail_error}")
+
+
+def _run(args: argparse.Namespace) -> int:
+    """Processes the inbox, writes the updates and deletes the GOOD files (see `main`)
+
+    Args:
+        args (argparse.Namespace): parsed command line
+
+    Returns:
+        int: exit code 0
+    """
+    # 1. Process all files of the inbox
+    file_counts, updates, good_files = process_heartbeat_files(heartbeat_files(data_dir=args.data_dir))
+
+    # 2. Summary
+    print(f"Heartbeat files in {args.data_dir}:")
+    for (status, container), count in sorted(file_counts.items()):
+        print(f"  {status:5} {container:13} {count}")
+    process_counts: Counter = Counter((u.container.value, u.process.split("-")[0]) for u in updates)
+    print(f"Updates, one per container_rawdata key: {len(updates)}")
+    for (container, process), count in sorted(process_counts.items()):
+        print(f"  {container:13} {process:12} {count}")
+
+    # 3. Write and delete the GOOD files (dry run: nothing)
+    if args.write is None:
+        print("Dry run: nothing written, no file deleted")
+        return 0
+    load_from_enviroment(db_config_file=str(args.write))
+    update_heartbeat_status(updates=updates)
+    # Only after the commit: a failed write raises before any file is deleted
+    for file_path in good_files:
+        file_path.unlink(missing_ok=True)
+    print(f"Written: {len(updates)} updates; deleted: {len(good_files)} GOOD files")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Batch entry point `container-status-importer`
 
@@ -469,7 +558,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         argv (Optional[List[str]], optional): command line arguments. Defaults to None (sys.argv).
 
     Returns:
-        int: exit code 0; a failed database write raises before any file is deleted
+        int: exit code 0; a failed run raises (after the failure email with `--notify`) before any file is deleted
     """
     # 1. Arguments
     parser = argparse.ArgumentParser(description="Import NNE container heartbeat files into container_rawdata")
@@ -481,31 +570,24 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="write into container_rawdata with the database settings of this env file and delete the GOOD files "
         "(default: dry run, nothing written or deleted)",
     )
+    parser.add_argument(
+        "--notify",
+        nargs="+",
+        metavar="EMAIL",
+        help="email addresses informed when the run fails (SMTP settings from the --write env file)",
+    )
     args = parser.parse_args(argv)
+    if args.notify and args.write is None:
+        parser.error("--notify needs --write: the SMTP settings are read from its env file")
 
-    # 2. Process all files of the inbox
-    file_counts, updates, good_files = process_heartbeat_files(heartbeat_files(data_dir=args.data_dir))
-
-    # 3. Summary
-    print(f"Heartbeat files in {args.data_dir}:")
-    for (status, container), count in sorted(file_counts.items()):
-        print(f"  {status:5} {container:13} {count}")
-    process_counts: Counter = Counter((u.container.value, u.process.split("-")[0]) for u in updates)
-    print(f"Updates, one per container_rawdata key: {len(updates)}")
-    for (container, process), count in sorted(process_counts.items()):
-        print(f"  {container:13} {process:12} {count}")
-
-    # 4. Write and delete the GOOD files (dry run: nothing)
-    if args.write is None:
-        print("Dry run: nothing written, no file deleted")
-        return 0
-    load_from_enviroment(db_config_file=str(args.write))
-    update_heartbeat_status(updates=updates)
-    # Only after the commit: a failed write raises before any file is deleted
-    for file_path in good_files:
-        file_path.unlink(missing_ok=True)
-    print(f"Written: {len(updates)} updates; deleted: {len(good_files)} GOOD files")
-    return 0
+    # 2. Run, a failure is emailed and raised again
+    started: datetime = datetime.now()
+    try:
+        return _run(args)
+    except Exception as error:
+        if args.notify:
+            send_failure_email(env_file=args.write, recipients=args.notify, started=started, error=error)
+        raise
 
 
 if __name__ == "__main__":

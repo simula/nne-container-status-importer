@@ -38,7 +38,7 @@ uv pip install --python .venv/bin/python -e ".[test]"
 ```
 
 - `tests/test_importer.py`: parsing, thread to process mapping, BAD and LEAVE files, file selection and order, files
-  kept by a dry run and a failed write; no database. Test files: real heartbeat files of node 7056, 2026-11-06 09:00
+  kept by a dry run and a failed write, failure email (SMTP replaced by a stand-in, no email is sent); no database. Test files: real heartbeat files of node 7056, 2026-11-06 09:00
   UTC, one per container (`tests/data/7056/heartbeats/2026-11-06/`).
 - `tests/test_database.py`: upsert and deletion of the GOOD files against the local test database; skipped without
   `.db_env_test`, refuses any database other than `127.0.0.1:23307/report_test`, writes only rows of the test node 99999

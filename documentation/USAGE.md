@@ -3,13 +3,14 @@
 ## Command line
 
 ```sh
-container-status-importer [--data-dir DIR] [--write DB_ENV]
+container-status-importer [--data-dir DIR] [--write DB_ENV] [--notify EMAIL [EMAIL ...]]
 ```
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--data-dir DIR` | `/nne/data` | inbox with the node directories |
 | `--write DB_ENV` | – (dry run) | write into `container_rawdata` with the database settings of the env file `DB_ENV`, then delete the imported files |
+| `--notify EMAIL ...` | – | email these addresses when a run fails (needs `--write`, SMTP settings from its env file) |
 
 Without `--write` the batch only reads the files and prints the summary: nothing is written and no file is deleted.
 
@@ -81,7 +82,23 @@ write if it does not exist.
 
 A row exists per running container process; the upsert updates `seen_ts`, `uptime` and `extra` of an existing key.
 
-## Database settings
+## Failure email
 
-The env file passed to `--write` uses the variables of nnedbtools (`NNE_DB_*`, `REPORT_DB_*`, `NNE_REPORT_YEAR`; see the
-nnedbtools documentation, INSTALLATION.md). The batch writes only to the report database.
+With `--notify` every failed run (any error: inbox, database write, deletion) sends one email to all addresses and
+raises the error again, so the run ends with a non-zero exit code. No file is deleted by a failed run. Subject
+`[nne-container-status-importer] batch failed on <host>`; the body holds start, failure time, runtime, command, error and
+traceback. A successful run and BAD files send nothing. If the email cannot be sent, that is only logged.
+
+The email goes through an authenticated SMTP server with STARTTLS (oculus has no mail server, and its addresses have no
+reverse DNS, so direct delivery is rejected), e.g. Gmail with an app password of a Google account with 2-step
+verification (Google account → Security → App passwords).
+
+## Settings (env file of `--write`)
+
+| Variables | Content |
+|---|---|
+| `NNE_DB_*`, `REPORT_DB_*`, `NNE_REPORT_YEAR` | database settings of nnedbtools (see the nnedbtools documentation, INSTALLATION.md); the batch writes only to the report database |
+| `SMTP_HOST`, `SMTP_PORT` | SMTP server with STARTTLS, e.g. `smtp.gmail.com`, `587` (only with `--notify`) |
+| `SMTP_USER`, `SMTP_PASSWORD` | login and sender address, password (Gmail: app password) |
+
+On oculus the env file belongs to `reversi` with mode 600; it is never committed.

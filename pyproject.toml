@@ -5,6 +5,7 @@ description = "Hourly import of NNE container heartbeat files into the report ta
 requires-python = ">=3.14"
 dependencies = [
     "nnedbtools @ git+ssh://git@github.com/simula/nnedbtools.git@v.2026-11-06-Heartbeat-Split",
+    "environs>=15.2.0",
 ]
 
 [project.optional-dependencies]

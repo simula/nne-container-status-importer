@@ -135,3 +135,65 @@ def test_files_kept_without_successful_write(tmp_path, monkeypatch, write):
     else:
         assert main(["--data-dir", str(tmp_path)]) == 0
     assert good.exists()
+
+
+class _FakeSMTP:
+    """Stands in for smtplib.SMTP: records the messages, `fail` makes the login fail (no mail is sent)."""
+
+    sent: list = []
+    fail: bool = False
+
+    def __init__(self, host, port, timeout):
+        self.server = (host, port)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def starttls(self):
+        pass
+
+    def login(self, user, password):
+        if _FakeSMTP.fail:
+            raise importer.smtplib.SMTPAuthenticationError(535, b"bad credentials")
+
+    def send_message(self, message):
+        _FakeSMTP.sent.append(message)
+
+
+@pytest.mark.parametrize("mail_fails", [False, True], ids=["mail_sent", "mail_error"])
+def test_failed_run_is_emailed_and_raised(tmp_path, monkeypatch, mail_fails):
+    env_file = tmp_path / "batch.env"
+    env_file.write_text("SMTP_HOST=smtp.example.org\nSMTP_PORT=587\nSMTP_USER=batch@example.org\nSMTP_PASSWORD=x\n")
+    inbox = tmp_path / "inbox" / "7056" / "heartbeats" / "2026-11-06"
+    inbox.mkdir(parents=True)
+    (inbox / _sample("mqtt").name).write_bytes(_sample("mqtt").read_bytes())
+
+    def fail(updates):
+        raise RuntimeError("database down")
+
+    monkeypatch.setattr(importer, "load_from_enviroment", lambda db_config_file: None)
+    monkeypatch.setattr(importer, "update_heartbeat_status", fail)
+    monkeypatch.setattr(importer.smtplib, "SMTP", _FakeSMTP)
+    monkeypatch.setattr(_FakeSMTP, "sent", [])
+    monkeypatch.setattr(_FakeSMTP, "fail", mail_fails)
+    with pytest.raises(RuntimeError, match="database down"):
+        main(["--data-dir", str(tmp_path / "inbox"), "--write", str(env_file), "--notify", "a@x.org", "b@x.org"])
+    if mail_fails:
+        assert _FakeSMTP.sent == []
+    else:
+        (message,) = _FakeSMTP.sent
+        assert message["To"] == "a@x.org, b@x.org" and message["From"] == "batch@example.org"
+        assert message["Subject"].startswith("[nne-container-status-importer] batch failed on ")
+        assert "RuntimeError: database down" in message.get_content() and "Traceback" in message.get_content()
+
+
+def test_successful_run_sends_no_email(tmp_path, monkeypatch):
+    monkeypatch.setattr(importer, "load_from_enviroment", lambda db_config_file: None)
+    monkeypatch.setattr(importer, "update_heartbeat_status", lambda updates: None)
+    monkeypatch.setattr(importer.smtplib, "SMTP", _FakeSMTP)
+    monkeypatch.setattr(_FakeSMTP, "sent", [])
+    assert main(["--data-dir", str(tmp_path), "--write", "unused.env", "--notify", "a@x.org"]) == 0
+    assert _FakeSMTP.sent == []
