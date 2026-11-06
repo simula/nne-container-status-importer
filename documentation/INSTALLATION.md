@@ -52,11 +52,12 @@ sudo -u reversi mkdir -p -m 700 /home/reversi/.config/nne-container-status-impor
 sudo install -o reversi -g reversi -m 600 <prepared env file> /home/reversi/.config/nne-container-status-importer/batch.env
 ```
 
-The batch writes its log to `logs/` of the repository, which `reversi` may write through the group `drifters`.
+The service writes the log to `/var/log/nne-container-status-importer/importer.log` (rotated at midnight, 30 days kept;
+the directory is created by systemd for `reversi`, `LogsDirectory=`), see [USAGE.md](USAGE.md#logs).
 
 ## Service (with sudo)
 
-`deploy/nne-container-status-importer.service` runs the batch once as `reversi` with `--write` and `--notify`;
+`deploy/nne-container-status-importer.service` runs the batch once as `reversi` with `--write`, `--notify` and `--log-dir`;
 `deploy/nne-container-status-importer.timer` starts it every hour (a run still active is not started again, a missed hour
 is caught up after a reboot):
 
@@ -65,7 +66,8 @@ sudo cp deploy/nne-container-status-importer.service deploy/nne-container-status
 sudo systemctl daemon-reload
 sudo systemctl enable --now nne-container-status-importer.timer
 systemctl list-timers nne-container-status-importer.timer     # next run
-journalctl -u nne-container-status-importer.service           # output of the runs
+journalctl -u nne-container-status-importer.service           # summary of the runs
+less /var/log/nne-container-status-importer/importer.log      # log of the runs
 ```
 
 A run outside the schedule: `sudo systemctl start nne-container-status-importer.service`. Another notification address:

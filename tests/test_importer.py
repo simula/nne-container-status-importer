@@ -11,10 +11,10 @@ from pathlib import Path
 import pytest
 
 from container_status_importer import importer
+from container_status_importer.cli import main
 from container_status_importer.importer import (
     HeartbeatFileStatus,
     heartbeat_files,
-    main,
     process_heartbeat_file,
     process_heartbeat_files,
 )

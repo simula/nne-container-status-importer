@@ -17,7 +17,8 @@ import nnedbtools.tables as tb
 from nnedbtools.enums import DockerContainer
 from nnedbtools.identityprovider import load_from_enviroment
 
-from container_status_importer.importer import HeartbeatUpdate, main, update_heartbeat_status
+from container_status_importer.cli import main
+from container_status_importer.importer import HeartbeatUpdate, update_heartbeat_status
 
 DB_ENV = Path(__file__).parents[1] / ".db_env_test"
 TEST_NODE = 99999

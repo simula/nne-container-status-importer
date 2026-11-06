@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from container_status_importer import importer, notification
-from container_status_importer.importer import main
+from container_status_importer.cli import main
 
 SAMPLE = Path(__file__).parent / "data" / "7056" / "heartbeats" / "2026-11-06" / "heartbeat_mqtt_20261106T090000.json.xz"
 

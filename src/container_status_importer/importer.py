@@ -5,7 +5,6 @@ UTC. The data directory is the inbox the nodes deliver into with rsync: every fi
 timestamp (from the name) first, and the GOOD files are deleted after the database commit.
 """
 
-import argparse
 import json
 import logging
 import lzma
@@ -26,8 +25,6 @@ from nnedbtools.enums import DockerContainer
 from nnedbtools.identityprovider import load_from_enviroment
 from nnedbtools.utils import dt_functions
 from sqlalchemy.dialects.mysql import insert
-
-from container_status_importer.notification import send_failure_email
 
 # Complete heartbeat file name: rsync's hidden temporary files (`.heartbeat_...json.xz.<random>`) never match
 FILE_NAME = re.compile(r"heartbeat_(?P<container>[a-z]+)_(?P<ts>\d{8}T\d{6})\.json\.xz")
@@ -464,20 +461,21 @@ def update_heartbeat_status(updates: List[HeartbeatUpdate]) -> None:
         session.commit()
 
 
-def _run(args: argparse.Namespace) -> int:
-    """Processes the inbox, writes the updates and deletes the GOOD files (see `main`)
+def run(data_dir: Path, write: Optional[Path]) -> int:
+    """Processes the inbox, writes the updates and deletes the GOOD files
 
     Args:
-        args (argparse.Namespace): parsed command line
+        data_dir (Path): inbox with the node directories
+        write (Optional[Path]): env file with the database settings; None: dry run, nothing written or deleted
 
     Returns:
-        int: exit code 0
+        int: exit code 0; a failed write raises before any file is deleted
     """
     # 1. Process all files of the inbox
-    file_counts, updates, good_files = process_heartbeat_files(heartbeat_files(data_dir=args.data_dir))
+    file_counts, updates, good_files = process_heartbeat_files(heartbeat_files(data_dir=data_dir))
 
     # 2. Summary
-    print(f"Heartbeat files in {args.data_dir}:")
+    print(f"Heartbeat files in {data_dir}:")
     for (status, container), count in sorted(file_counts.items()):
         print(f"  {status:5} {container:13} {count}")
     process_counts: Counter = Counter((u.container.value, u.process.split("-")[0]) for u in updates)
@@ -486,56 +484,13 @@ def _run(args: argparse.Namespace) -> int:
         print(f"  {container:13} {process:12} {count}")
 
     # 3. Write and delete the GOOD files (dry run: nothing)
-    if args.write is None:
+    if write is None:
         print("Dry run: nothing written, no file deleted")
         return 0
-    load_from_enviroment(db_config_file=str(args.write))
+    load_from_enviroment(db_config_file=str(write))
     update_heartbeat_status(updates=updates)
     # Only after the commit: a failed write raises before any file is deleted
     for file_path in good_files:
         file_path.unlink(missing_ok=True)
     print(f"Written: {len(updates)} updates; deleted: {len(good_files)} GOOD files")
     return 0
-
-
-def main(argv: Optional[List[str]] = None) -> int:
-    """Batch entry point `container-status-importer`
-
-    Args:
-        argv (Optional[List[str]], optional): command line arguments. Defaults to None (sys.argv).
-
-    Returns:
-        int: exit code 0; a failed run raises (after the failure email with `--notify`) before any file is deleted
-    """
-    # 1. Arguments
-    parser = argparse.ArgumentParser(description="Import NNE container heartbeat files into container_rawdata")
-    parser.add_argument("--data-dir", type=Path, default=Path("/nne/data"), help="node data (default /nne/data)")
-    parser.add_argument(
-        "--write",
-        type=Path,
-        metavar="DB_ENV",
-        help="write into container_rawdata with the database settings of this env file and delete the GOOD files "
-        "(default: dry run, nothing written or deleted)",
-    )
-    parser.add_argument(
-        "--notify",
-        nargs="+",
-        metavar="EMAIL",
-        help="email addresses informed when the run fails (SMTP settings from the --write env file)",
-    )
-    args = parser.parse_args(argv)
-    if args.notify and args.write is None:
-        parser.error("--notify needs --write: the SMTP settings are read from its env file")
-
-    # 2. Run, a failure is emailed and raised again
-    started: datetime = datetime.now()
-    try:
-        return _run(args)
-    except Exception as error:
-        if args.notify:
-            send_failure_email(env_file=args.write, recipients=args.notify, started=started, error=error)
-        raise
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

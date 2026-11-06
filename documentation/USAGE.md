@@ -3,7 +3,7 @@
 ## Command line
 
 ```sh
-container-status-importer [--data-dir DIR] [--write DB_ENV] [--notify EMAIL [EMAIL ...]]
+container-status-importer [--data-dir DIR] [--write DB_ENV] [--notify EMAIL [EMAIL ...]] [--log-dir DIR]
 ```
 
 | Option | Default | Meaning |
@@ -11,12 +11,22 @@ container-status-importer [--data-dir DIR] [--write DB_ENV] [--notify EMAIL [EMA
 | `--data-dir DIR` | `/nne/data` | inbox with the node directories |
 | `--write DB_ENV` | – (dry run) | write into `container_rawdata` with the database settings of the env file `DB_ENV`, then delete the imported files |
 | `--notify EMAIL ...` | – | email these addresses when a run fails (needs `--write`, SMTP settings from its env file) |
+| `--log-dir DIR` | – (stderr) | write the log to `DIR/importer.log`, rotated at midnight, 30 days kept |
 
 Without `--write` the batch only reads the files and prints the summary: nothing is written and no file is deleted.
 
 The summary lists the files per status and container, the updates per container and process and, with `--write`, the
-number of written updates and deleted files. The library log is written to `logs/robustnet<date-time>.log` in the
-working directory.
+number of written updates and deleted files.
+
+## Logs
+
+The log of a run (start, finish, BAD files with their reason, failures with traceback, and the messages of nnedbtools)
+goes to `--log-dir`/`importer.log`, without `--log-dir` to stderr. The file starts anew every midnight; the previous days
+are kept as `importer.log.<YYYY-MM-DD>`, 30 days. The service logs to `/var/log/nne-container-status-importer/`; its
+summary (stdout) is in the journal (`journalctl -u nne-container-status-importer.service`).
+
+The logging is set up before nnedbtools is imported, so the library writes no log file of its own (its
+`logs/robustnet<date-time>.log`); it only creates an empty `logs/` directory in the working directory.
 
 ## Inbox and file format
 

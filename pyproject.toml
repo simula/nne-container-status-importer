@@ -12,7 +12,7 @@ dependencies = [
 test = ["pytest==9.1.1"]
 
 [project.scripts]
-container-status-importer = "container_status_importer.importer:main"
+container-status-importer = "container_status_importer.cli:main"
 
 [build-system]
 requires = ["setuptools>=80"]
