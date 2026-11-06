@@ -57,7 +57,7 @@ the directory is created by systemd for `reversi`, `LogsDirectory=`), see [USAGE
 
 ## Service (with sudo)
 
-`deploy/nne-container-status-importer.service` runs the batch once as `reversi` with `--write`, `--notify` and `--log-dir`;
+`deploy/nne-container-status-importer.service` runs the batch once as `reversi` with `--write`, `--notify`, `--bad-dir /nne/bad` and `--log-dir`;
 `deploy/nne-container-status-importer.timer` starts it every hour (a run still active is not started again, a missed hour
 is caught up after a reboot):
 

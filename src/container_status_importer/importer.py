@@ -9,6 +9,7 @@ import json
 import logging
 import lzma
 import re
+import shutil
 import traceback
 from abc import ABC, abstractmethod
 from collections import Counter
@@ -378,30 +379,33 @@ def heartbeat_files(data_dir: Path) -> List[Path]:
 
 def process_heartbeat_files(
     file_paths: List[Path],
-) -> Tuple[Counter, List[HeartbeatUpdate], List[Path]]:
+) -> Tuple[Counter, List[HeartbeatUpdate], List[Path], List[Path]]:
     """Processes heartbeat files in the given order (oldest first)
 
     Args:
         file_paths (List[Path]): heartbeat files, oldest first
 
     Returns:
-        Tuple[Counter, List[HeartbeatUpdate], List[Path]]: file count per (status name, container of the file name),
-        the last update per primary key of `container_rawdata`, the GOOD files
+        Tuple[Counter, List[HeartbeatUpdate], List[Path], List[Path]]: file count per (status name, container of the
+        file name), the last update per primary key of `container_rawdata`, the GOOD files, the BAD files
     """
     file_counts: Counter = Counter()
     latest: Dict[tuple, HeartbeatUpdate] = {}
     good_files: List[Path] = []
+    bad_files: List[Path] = []
     for file_path in file_paths:
         # 1. Read the file
         status, updates = process_heartbeat_file(file_path=file_path)
         file_counts[(status.name, FILE_NAME.fullmatch(file_path.name)["container"])] += 1
         if status == HeartbeatFileStatus.GOOD:
             good_files.append(file_path)
+        elif status == HeartbeatFileStatus.BAD:
+            bad_files.append(file_path)
         # 2. Keep the last update per key (files are processed oldest first)
         for update in updates or []:
             key: tuple = (update.node_id, update.start_ts, update.container, update.version, update.process)
             latest[key] = update
-    return (file_counts, list(latest.values()), good_files)
+    return (file_counts, list(latest.values()), good_files, bad_files)
 
 
 def update_heartbeat_status(updates: List[HeartbeatUpdate]) -> None:
@@ -461,18 +465,20 @@ def update_heartbeat_status(updates: List[HeartbeatUpdate]) -> None:
         session.commit()
 
 
-def run(data_dir: Path, write: Optional[Path]) -> int:
-    """Processes the inbox, writes the updates and deletes the GOOD files
+def run(data_dir: Path, write: Optional[Path], bad_dir: Optional[Path] = None) -> int:
+    """Processes the inbox, writes the updates, deletes the GOOD files and moves the BAD files
 
     Args:
         data_dir (Path): inbox with the node directories
-        write (Optional[Path]): env file with the database settings; None: dry run, nothing written or deleted
+        write (Optional[Path]): env file with the database settings; None: dry run, nothing written, deleted or moved
+        bad_dir (Optional[Path], optional): BAD files are moved here under their path relative to `data_dir`.
+            Defaults to None: BAD files stay in the inbox.
 
     Returns:
         int: exit code 0; a failed write raises before any file is deleted
     """
     # 1. Process all files of the inbox
-    file_counts, updates, good_files = process_heartbeat_files(heartbeat_files(data_dir=data_dir))
+    file_counts, updates, good_files, bad_files = process_heartbeat_files(heartbeat_files(data_dir=data_dir))
 
     # 2. Summary
     print(f"Heartbeat files in {data_dir}:")
@@ -485,7 +491,7 @@ def run(data_dir: Path, write: Optional[Path]) -> int:
 
     # 3. Write and delete the GOOD files (dry run: nothing)
     if write is None:
-        print("Dry run: nothing written, no file deleted")
+        print("Dry run: nothing written, no file deleted or moved")
         return 0
     load_from_enviroment(db_config_file=str(write))
     update_heartbeat_status(updates=updates)
@@ -493,4 +499,13 @@ def run(data_dir: Path, write: Optional[Path]) -> int:
     for file_path in good_files:
         file_path.unlink(missing_ok=True)
     print(f"Written: {len(updates)} updates; deleted: {len(good_files)} GOOD files")
+
+    # 4. Move the BAD files to the bad directory, same path as in the inbox
+    if bad_dir is not None:
+        for file_path in bad_files:
+            target: Path = bad_dir / file_path.relative_to(data_dir)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(file_path, target)
+            logging.info(f"-- Moved BAD file {file_path} to {target}")
+        print(f"Moved: {len(bad_files)} BAD files to {bad_dir}")
     return 0

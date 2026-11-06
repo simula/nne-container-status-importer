@@ -112,7 +112,7 @@ def test_last_update_per_key(tmp_path):
     record = json.loads(lzma.decompress(_sample("mqtt").read_bytes()))
     record["seen_ts"] = "2026-11-06T10:00:00"
     later = _write(tmp_path / "heartbeat_mqtt_20261106T100000.json.xz", record)
-    file_counts, updates, good_files = process_heartbeat_files([_sample("mqtt"), later])
+    file_counts, updates, good_files, bad_files = process_heartbeat_files([_sample("mqtt"), later])
     assert file_counts == {("GOOD", "mqtt"): 2}
     assert {(u.process, u.seen_ts) for u in updates} == {
         ("container", datetime(2026, 11, 6, 10)),
@@ -120,18 +120,38 @@ def test_last_update_per_key(tmp_path):
     }
 
 
+def _inbox(tmp_path):
+    """Inbox with one GOOD and one BAD file of node 7056."""
+    day = tmp_path / "inbox" / "7056" / "heartbeats" / "2026-11-06"
+    day.mkdir(parents=True)
+    good = day / _sample("mqtt").name
+    good.write_bytes(_sample("mqtt").read_bytes())
+    bad = day / "heartbeat_mqtt_20261106T100000.json.xz"
+    bad.write_bytes(b"broken")
+    return good, bad
+
+
 @pytest.mark.parametrize("write", [False, True], ids=["dry_run", "failed_write"])
 def test_files_kept_without_successful_write(tmp_path, monkeypatch, write):
-    good = tmp_path / "7056" / "heartbeats" / "2026-11-06" / _sample("mqtt").name
-    good.parent.mkdir(parents=True)
-    good.write_bytes(_sample("mqtt").read_bytes())
+    good, bad = _inbox(tmp_path)
+    arguments = ["--data-dir", str(tmp_path / "inbox"), "--bad-dir", str(tmp_path / "bad")]
     if write:
         def fail(updates):
             raise RuntimeError("database down")
         monkeypatch.setattr(importer, "load_from_enviroment", lambda db_config_file: None)
         monkeypatch.setattr(importer, "update_heartbeat_status", fail)
         with pytest.raises(RuntimeError):
-            main(["--data-dir", str(tmp_path), "--write", "unused.env"])
+            main(arguments + ["--write", "unused.env"])
     else:
-        assert main(["--data-dir", str(tmp_path)]) == 0
-    assert good.exists()
+        assert main(arguments) == 0
+    assert good.exists() and bad.exists() and not (tmp_path / "bad").exists()
+
+
+def test_write_moves_bad_files_to_same_path(tmp_path, monkeypatch):
+    good, bad = _inbox(tmp_path)
+    monkeypatch.setattr(importer, "load_from_enviroment", lambda db_config_file: None)
+    monkeypatch.setattr(importer, "update_heartbeat_status", lambda updates: None)
+    arguments = ["--data-dir", str(tmp_path / "inbox"), "--write", "unused.env", "--bad-dir", str(tmp_path / "bad")]
+    assert main(arguments) == 0
+    assert not good.exists() and not bad.exists()
+    assert (tmp_path / "bad" / "7056" / "heartbeats" / "2026-11-06" / bad.name).read_bytes() == b"broken"

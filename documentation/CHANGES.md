@@ -1,5 +1,10 @@
 # Changes
 
+## 1.1.0 (2026-11-06)
+
+- `--bad-dir DIR`: with `--write` the BAD files are moved to `DIR` after the database commit, same path as in the inbox;
+  the service moves them to `/nne/bad/` (copy the service file again, `daemon-reload`)
+
 ## 1.0.0 – first release (2026-11-06)
 
 Hourly batch importing the container heartbeat files of the NNE nodes from the inbox `/nne/data` on oculus into the

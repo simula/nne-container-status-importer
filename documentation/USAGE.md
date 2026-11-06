@@ -3,7 +3,8 @@
 ## Command line
 
 ```sh
-container-status-importer [--data-dir DIR] [--write DB_ENV] [--notify EMAIL [EMAIL ...]] [--log-dir DIR]
+container-status-importer [--data-dir DIR] [--write DB_ENV] [--notify EMAIL [EMAIL ...]] [--bad-dir DIR]
+                          [--log-dir DIR]
 ```
 
 | Option | Default | Meaning |
@@ -11,6 +12,7 @@ container-status-importer [--data-dir DIR] [--write DB_ENV] [--notify EMAIL [EMA
 | `--data-dir DIR` | `/nne/data` | inbox with the node directories |
 | `--write DB_ENV` | – (dry run) | write into `container_rawdata` with the database settings of the env file `DB_ENV`, then delete the imported files |
 | `--notify EMAIL ...` | – | email these addresses when a run fails (needs `--write`, SMTP settings from its env file) |
+| `--bad-dir DIR` | – (BAD files stay) | with `--write`, move the BAD files to `DIR`, same path as in the inbox |
 | `--log-dir DIR` | – (stderr) | write the log to `DIR/importer.log`, rotated at midnight, 30 days kept |
 
 Without `--write` the batch only reads the files and prints the summary: nothing is written and no file is deleted.
@@ -52,7 +54,7 @@ File format version 1:
    | Status | Meaning | File |
    |---|---|---|
    | GOOD | read and converted into updates (possibly none) | deleted after the database commit |
-   | BAD | unreadable (e.g. an unfinished transfer), missing fields, unsupported version or container | left in the inbox, read again in the next run |
+   | BAD | unreadable (e.g. an unfinished transfer), missing fields, unsupported version or container | moved to `--bad-dir` after the database commit, same path as in the inbox (`/nne/bad/<node>/heartbeats/<day>/<file>`); without `--bad-dir` left in the inbox |
    | LEAVE | gone before it was read | – |
 
 3. Each monitored thread of a container gives one update of its process:
@@ -118,10 +120,11 @@ A failure email or a failed run (`Run failed` in the log, the service `failed`):
 traceback. A failed run deletes nothing; the next run imports the same files again, so after the cause is fixed (e.g.
 database rights, network) nothing is lost.
 
-BAD files stay in the inbox and are counted in every run's summary and logged with their reason. An unfinished transfer
-is completed by rsync and imported by a later run. A file that stays BAD (broken xz or JSON, unknown version or container)
-is inspected by hand (`xz -dc <file>`) and deleted when it cannot be repaired; an unknown container or version needs a
-change of the importer (DEVELOPMENT.md, Code structure).
+BAD files (broken xz or JSON, missing fields, unknown version or container) are counted in the run's summary, logged
+with their reason and moved to `/nne/bad/` under the same path as in the inbox. They are inspected by hand
+(`xz -dc <file>`); an unknown container or version needs a change of the importer (DEVELOPMENT.md, Code structure),
+after which the files can be moved back into the inbox to be imported. rsync delivers under a hidden temporary name, so
+an unfinished transfer is never BAD.
 
 ## Settings (env file of `--write`)
 

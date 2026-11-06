@@ -58,6 +58,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="email addresses informed when the run fails (SMTP settings from the --write env file)",
     )
     parser.add_argument(
+        "--bad-dir",
+        type=Path,
+        help="with --write move the BAD files here, same path as in the inbox (default: they stay in the inbox)",
+    )
+    parser.add_argument(
         "--log-dir",
         type=Path,
         help=f"write the log to LOG_DIR/importer.log, rotated at midnight, {LOG_DAYS} days kept (default: stderr)",
@@ -73,9 +78,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # 3. Run, a failure is emailed and raised again
     started: datetime = datetime.now()
-    logging.info(f"-- Run started: data dir {args.data_dir}, write {args.write}, notify {args.notify}")
+    logging.info(
+        f"-- Run started: data dir {args.data_dir}, write {args.write}, bad dir {args.bad_dir}, notify {args.notify}"
+    )
     try:
-        exit_code: int = run(data_dir=args.data_dir, write=args.write)
+        exit_code: int = run(data_dir=args.data_dir, write=args.write, bad_dir=args.bad_dir)
     except Exception as error:
         logging.exception(f"-- Run failed: {error}")
         if args.notify:

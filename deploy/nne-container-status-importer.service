@@ -11,4 +11,4 @@ Group=reversi
 WorkingDirectory=/nne/nne-container-status-importer
 # /var/log/nne-container-status-importer, created by systemd for User
 LogsDirectory=nne-container-status-importer
-ExecStart=/nne/nne-container-status-importer/.venv/bin/container-status-importer --write /home/reversi/.config/nne-container-status-importer/batch.env --notify alojz@simula.no --log-dir /var/log/nne-container-status-importer
+ExecStart=/nne/nne-container-status-importer/.venv/bin/container-status-importer --write /home/reversi/.config/nne-container-status-importer/batch.env --notify alojz@simula.no --bad-dir /nne/bad --log-dir /var/log/nne-container-status-importer

@@ -45,7 +45,8 @@ Flow of a run (`cli.main` → `importer.run`):
 2. `process_heartbeat_files` → `process_heartbeat_file` per file: GOOD with its updates, BAD, LEAVE; the last update per
    key of `container_rawdata` is kept
 3. summary on stdout
-4. with `--write`: `update_heartbeat_status` (one upsert, commit), then the GOOD files are deleted
+4. with `--write`: `update_heartbeat_status` (one upsert, commit), then the GOOD files are deleted and, with
+   `--bad-dir`, the BAD files moved there under their path relative to the inbox
 5. on any exception: `send_failure_email` (with `--notify`), the exception is raised again
 
 Where changes go:

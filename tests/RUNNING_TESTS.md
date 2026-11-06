@@ -16,13 +16,13 @@ How to run the complete test suite by hand. Setup of the virtual environment and
 python -m pytest
 ```
 
-Expected: `25 passed`. Without `.db_env_test` the two database tests are skipped: `23 passed, 2 skipped`.
+Expected: `26 passed`. Without `.db_env_test` the two database tests are skipped: `24 passed, 2 skipped`.
 
 ## Test files
 
 | File | Checks | Needs | Writes |
 |---|---|---|---|
-| `test_importer.py` (18) | thread to process mapping per container, unknown container, BAD files (not xz, not an object, missing version, unknown version, missing fields), file gone (LEAVE), uptime / sequence rule, file order by name timestamp, rsync temporary files ignored, last update per key, files kept by a dry run and by a failed write | – | temporary folders only |
+| `test_importer.py` (19) | thread to process mapping per container, unknown container, BAD files (not xz, not an object, missing version, unknown version, missing fields), file gone (LEAVE), uptime / sequence rule, file order by name timestamp, rsync temporary files ignored, last update per key, files kept (and BAD files not moved) by a dry run and by a failed write, BAD files moved to `--bad-dir` under the same path | – | temporary folders only |
 | `test_notification.py` (4) | failure email from the template to all recipients with `Date`, `Message-ID` and traceback, a mail error does not hide the failure, no email for a successful run, IPv4 connection | – | nothing: SMTP is replaced by a stand-in, no email is sent |
 | `test_logging.py` (1) | in a new Python process the whole log, nnedbtools included, goes to `--log-dir`; nnedbtools writes no log file of its own | – | temporary folder only |
 | `test_database.py` (2) | upsert keeps one row per key with the latest values; a write deletes the GOOD files and keeps the BAD ones | local test database, `.db_env_test` | rows of the test node 99999 in `127.0.0.1:23307/report_test`, removed before and after |
