@@ -102,4 +102,5 @@ be served by `SMTP_HOST` (with `smtp.google.com`: Google-hosted addresses such a
 | `SMTP_HOST`, `SMTP_PORT` | mail server of the recipients, e.g. `smtp.google.com`, `25` (only with `--notify`) |
 | `SMTP_SENDER` | sender address, e.g. `reversi@oculus.nntb.no` |
 
-On oculus the env file belongs to `reversi` with mode 600; it is never committed.
+On oculus the env file is `/home/reversi/.config/nne-container-status-importer/batch.env` (owner `reversi`, mode 600); it
+is never committed.

@@ -1,0 +1,12 @@
+# Hourly import of the heartbeat inbox into report container_rawdata (started by nne-container-status-importer.timer)
+[Unit]
+Description=NNE container heartbeat import into report container_rawdata
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=reversi
+Group=reversi
+WorkingDirectory=/nne/nne-container-status-importer
+ExecStart=/nne/nne-container-status-importer/.venv/bin/container-status-importer --write /home/reversi/.config/nne-container-status-importer/batch.env --notify alojz@simula.no

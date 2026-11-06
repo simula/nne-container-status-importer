@@ -1,0 +1,10 @@
+# Starts nne-container-status-importer.service every hour; a run still active is not started again
+[Unit]
+Description=Hourly NNE container heartbeat import
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target

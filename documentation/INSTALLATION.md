@@ -40,3 +40,33 @@ uv pip install --python .venv/bin/python .
 
 For development and tests install the project editable with the test dependencies:
 `uv pip install --python .venv/bin/python -e ".[test]"` ([DEVELOPMENT.md](DEVELOPMENT.md)).
+
+## Production settings
+
+The env file of the batch is `/home/reversi/.config/nne-container-status-importer/batch.env` (owner `reversi`, mode 600):
+`REPORT_DB_*` of the report database (user `nne-containers` with SELECT, INSERT, UPDATE on `report.container_rawdata`) and
+`SMTP_*` of the failure email ([USAGE.md](USAGE.md#settings-env-file-of---write)). It is never committed.
+
+```sh
+sudo -u reversi mkdir -p -m 700 /home/reversi/.config/nne-container-status-importer
+sudo install -o reversi -g reversi -m 600 <prepared env file> /home/reversi/.config/nne-container-status-importer/batch.env
+```
+
+The batch writes its log to `logs/` of the repository, which `reversi` may write through the group `drifters`.
+
+## Service (with sudo)
+
+`deploy/nne-container-status-importer.service` runs the batch once as `reversi` with `--write` and `--notify`;
+`deploy/nne-container-status-importer.timer` starts it every hour (a run still active is not started again, a missed hour
+is caught up after a reboot):
+
+```sh
+sudo cp deploy/nne-container-status-importer.service deploy/nne-container-status-importer.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now nne-container-status-importer.timer
+systemctl list-timers nne-container-status-importer.timer     # next run
+journalctl -u nne-container-status-importer.service           # output of the runs
+```
+
+A run outside the schedule: `sudo systemctl start nne-container-status-importer.service`. Another notification address:
+change `--notify` in the service file, copy it again and run `sudo systemctl daemon-reload`.
