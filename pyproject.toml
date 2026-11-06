@@ -1,7 +1,7 @@
 [project]
 name = "nne-container-status-importer"
-version = "1.1.0"
-description = "Hourly import of NNE container heartbeat files into the report table container_rawdata"
+version = "1.1.1"
+description = "Import of NNE container heartbeat files into the report table container_rawdata"
 requires-python = ">=3.14"
 dependencies = [
     "nnedbtools @ git+ssh://git@github.com/simula/nnedbtools.git@v.2026-11-06-Heartbeat-Split",

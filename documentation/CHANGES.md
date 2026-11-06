@@ -1,5 +1,10 @@
 # Changes
 
+## 1.1.1 (2026-11-06)
+
+- Timer: runs at minute 10 and 40 of every hour (`OnCalendar=*:10,40`) instead of hourly at minute 0 (copy the timer
+  file again, `daemon-reload`, restart the timer)
+
 ## 1.1.0 (2026-11-06)
 
 - `--bad-dir DIR`: with `--write` the BAD files are moved to `DIR` after the database commit, same path as in the inbox;

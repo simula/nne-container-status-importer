@@ -1,4 +1,4 @@
-# Hourly import of the heartbeat inbox into report container_rawdata (started by nne-container-status-importer.timer)
+# Import of the heartbeat inbox into report container_rawdata (started by nne-container-status-importer.timer at minute 10 and 40)
 [Unit]
 Description=NNE container heartbeat import into report container_rawdata
 Wants=network-online.target

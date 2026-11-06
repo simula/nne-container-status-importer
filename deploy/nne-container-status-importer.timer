@@ -1,9 +1,9 @@
-# Starts nne-container-status-importer.service every hour; a run still active is not started again
+# Starts nne-container-status-importer.service at minute 10 and 40 of every hour; a run still active is not started again
 [Unit]
-Description=Hourly NNE container heartbeat import
+Description=NNE container heartbeat import at minute 10 and 40
 
 [Timer]
-OnCalendar=hourly
+OnCalendar=*:10,40
 Persistent=true
 
 [Install]

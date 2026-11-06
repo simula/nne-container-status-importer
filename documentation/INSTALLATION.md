@@ -58,8 +58,8 @@ the directory is created by systemd for `reversi`, `LogsDirectory=`), see [USAGE
 ## Service (with sudo)
 
 `deploy/nne-container-status-importer.service` runs the batch once as `reversi` with `--write`, `--notify`, `--bad-dir /nne/bad` and `--log-dir`;
-`deploy/nne-container-status-importer.timer` starts it every hour (a run still active is not started again, a missed hour
-is caught up after a reboot):
+`deploy/nne-container-status-importer.timer` starts it at minute 10 and 40 of every hour (`OnCalendar=*:10,40`; a run still
+active is not started again, a missed run is caught up after a reboot):
 
 ```sh
 sudo cp deploy/nne-container-status-importer.service deploy/nne-container-status-importer.timer /etc/systemd/system/
@@ -90,7 +90,7 @@ sudo tail -F /var/log/nne-container-status-importer/importer.log          # Ctrl
 The log shows the start, the nnedbtools connection, the BAD files with their reason and "Run finished" with the runtime;
 while the files are read it stays quiet. The summary with the counts is in the journal, in a second terminal:
 `sudo journalctl -fu nne-container-status-importer.service`. `sudo systemctl status nne-container-status-importer.service`
-shows whether the run is still active. If the run is right, start the hourly runs:
+shows whether the run is still active. If the run is right, start the scheduled runs:
 `sudo systemctl enable --now nne-container-status-importer.timer`.
 
 ### Update

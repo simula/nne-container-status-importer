@@ -1,4 +1,4 @@
-"""Import of NNE container heartbeat files into the report table `container_rawdata` (hourly batch).
+"""Import of NNE container heartbeat files into the report table `container_rawdata` (scheduled batch).
 
 Heartbeat files: <data-dir>/<node>/heartbeats/<YYYY-MM-DD>/heartbeat_<container>_<YYYYMMDDTHHMMSS>.json.xz, times in
 UTC. The data directory is the inbox the nodes deliver into with rsync: every file present is processed, oldest creation

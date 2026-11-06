@@ -113,7 +113,7 @@ be served by `SMTP_HOST` (with `smtp.google.com`: Google-hosted addresses such a
 | next and last run | `systemctl list-timers nne-container-status-importer.timer` |
 | summary of the runs | `journalctl -u nne-container-status-importer.service` |
 | log of the runs | `less /var/log/nne-container-status-importer/importer.log` (`Run started`, `Run finished`, `Run failed`) |
-| stop / start the hourly runs | `sudo systemctl disable --now nne-container-status-importer.timer` / `enable --now` |
+| stop / start the scheduled runs (minute 10 and 40) | `sudo systemctl disable --now nne-container-status-importer.timer` / `enable --now` |
 | one run now | `sudo systemctl start nne-container-status-importer.service` |
 
 A failure email or a failed run (`Run failed` in the log, the service `failed`): the log holds the error and its

@@ -1,9 +1,9 @@
 # nne-container-status-importer
 
-Hourly batch importing the container heartbeat files of the NNE nodes into the report table `container_rawdata`, built
+Batch importing the container heartbeat files of the NNE nodes into the report table `container_rawdata`, built
 on the [nnedbtools](https://github.com/simula/nnedbtools) library. The nodes deliver the files with rsync into the inbox
-`/nne/data/<node>/heartbeats/` on oculus; the batch imports every file present and deletes the imported ones. It is
-owned and run as a service by the user `reversi`.
+`/nne/data/<node>/heartbeats/` on oculus; the batch imports every file present and deletes the imported ones. It runs at
+minute 10 and 40 of every hour, owned and run as a service by the user `reversi`.
 
 ## Documentation
 
