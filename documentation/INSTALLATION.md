@@ -12,6 +12,18 @@ sudo env UV_PYTHON_INSTALL_DIR=/opt/uv/python uv python install 3.14.4
 sudo chmod -R a+rX /opt/uv
 ```
 
+## Apollo database address (once per machine, with sudo)
+
+The report database on Apollo is reached on its internal address `10.133.16.10`, which the DNS of oculus does not know
+(only the VPN DNS resolves `apollo.backend.crnalab.net`). The name is added to `/etc/hosts`:
+
+```sh
+echo "10.133.16.10 apollo.backend.crnalab.net" | sudo tee -a /etc/hosts
+getent hosts apollo.backend.crnalab.net    # 10.133.16.10 apollo.backend.crnalab.net
+```
+
+The env file then uses `REPORT_DB_URL =apollo.backend.crnalab.net:3306` (the IP `10.133.16.10:3306` works as well).
+
 ## Virtual environment with the project and nnedbtools
 
 From the repository root. The project installs nnedbtools from GitHub over SSH, pinned in `pyproject.toml` to the
