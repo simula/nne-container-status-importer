@@ -89,16 +89,17 @@ raises the error again, so the run ends with a non-zero exit code. No file is de
 `[nne-container-status-importer] batch failed on <host>`; the body holds start, failure time, runtime, command, error and
 traceback. A successful run and BAD files send nothing. If the email cannot be sent, that is only logged.
 
-The email goes through an authenticated SMTP server with STARTTLS (oculus has no mail server, and its addresses have no
-reverse DNS, so direct delivery is rejected), e.g. Gmail with an app password of a Google account with 2-step
-verification (Google account → Security → App passwords).
+The email is handed directly to the mail server of the recipients (`SMTP_HOST`), over IPv4, with STARTTLS when offered
+and without login; no local mail server is needed. Gmail rejects IPv6 senders without reverse DNS and authentication
+(oculus is reachable only through the VPN and has no reverse DNS), over IPv4 it accepts the email. All recipients must
+be served by `SMTP_HOST` (with `smtp.google.com`: Google-hosted addresses such as simula.no).
 
 ## Settings (env file of `--write`)
 
 | Variables | Content |
 |---|---|
 | `NNE_DB_*`, `REPORT_DB_*`, `NNE_REPORT_YEAR` | database settings of nnedbtools (see the nnedbtools documentation, INSTALLATION.md); the batch writes only to the report database |
-| `SMTP_HOST`, `SMTP_PORT` | SMTP server with STARTTLS, e.g. `smtp.gmail.com`, `587` (only with `--notify`) |
-| `SMTP_USER`, `SMTP_PASSWORD` | login and sender address, password (Gmail: app password) |
+| `SMTP_HOST`, `SMTP_PORT` | mail server of the recipients, e.g. `smtp.google.com`, `25` (only with `--notify`) |
+| `SMTP_SENDER` | sender address, e.g. `reversi@oculus.nntb.no` |
 
 On oculus the env file belongs to `reversi` with mode 600; it is never committed.
