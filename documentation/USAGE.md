@@ -104,6 +104,25 @@ and without login; no local mail server is needed. Gmail rejects IPv6 senders wi
 (oculus is reachable only through the VPN and has no reverse DNS), over IPv4 it accepts the email. All recipients must
 be served by `SMTP_HOST` (with `smtp.google.com`: Google-hosted addresses such as simula.no).
 
+## Operations
+
+| Task | How |
+|---|---|
+| next and last run | `systemctl list-timers nne-container-status-importer.timer` |
+| summary of the runs | `journalctl -u nne-container-status-importer.service` |
+| log of the runs | `less /var/log/nne-container-status-importer/importer.log` (`Run started`, `Run finished`, `Run failed`) |
+| stop / start the hourly runs | `sudo systemctl disable --now nne-container-status-importer.timer` / `enable --now` |
+| one run now | `sudo systemctl start nne-container-status-importer.service` |
+
+A failure email or a failed run (`Run failed` in the log, the service `failed`): the log holds the error and its
+traceback. A failed run deletes nothing; the next run imports the same files again, so after the cause is fixed (e.g.
+database rights, network) nothing is lost.
+
+BAD files stay in the inbox and are counted in every run's summary and logged with their reason. An unfinished transfer
+is completed by rsync and imported by a later run. A file that stays BAD (broken xz or JSON, unknown version or container)
+is inspected by hand (`xz -dc <file>`) and deleted when it cannot be repaired; an unknown container or version needs a
+change of the importer (DEVELOPMENT.md, Code structure).
+
 ## Settings (env file of `--write`)
 
 | Variables | Content |

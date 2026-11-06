@@ -10,4 +10,5 @@ owned and run as a service by the user `reversi`.
 - [Installation](documentation/INSTALLATION.md): uv, Python 3.14.4, virtual environment with the project and nnedbtools
 - [Usage](documentation/USAGE.md): command line, inbox and file format, processing and deletion, target table, database
   settings
-- [Development](documentation/DEVELOPMENT.md): local test database, tests, local full import
+- [Development](documentation/DEVELOPMENT.md): macOS setup, code structure, local test database, tests, local runs
+- [Changes](documentation/CHANGES.md): versions of the importer

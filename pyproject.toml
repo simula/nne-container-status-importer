@@ -1,6 +1,6 @@
 [project]
 name = "nne-container-status-importer"
-version = "0.1.0"
+version = "1.0.0"
 description = "Hourly import of NNE container heartbeat files into the report table container_rawdata"
 requires-python = ">=3.14"
 dependencies = [
