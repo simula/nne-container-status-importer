@@ -27,6 +27,7 @@ from nnedbtools.identityprovider import load_from_enviroment
 from nnedbtools.utils import dt_functions
 from sqlalchemy.dialects.mysql import insert
 
+# Complete heartbeat file name: rsync's hidden temporary files (`.heartbeat_...json.xz.<random>`) never match
 FILE_NAME = re.compile(r"heartbeat_(?P<container>[a-z]+)_(?P<ts>\d{8}T\d{6})\.json\.xz")
 
 
@@ -55,26 +56,55 @@ class HeartbeatUpdate:
 
 
 class HeartbeatFileStatus(Enum):
+    """
+    Enumeration of the processing results of one heartbeat file
+    """
+
+    # Not processed yet
     WORK = 0
+    # Read and converted into updates (possibly none): deleted after the database commit
     GOOD = 1
+    # Unreadable (e.g. unfinished transfer), unsupported version or container: left in the inbox
     BAD = 2
+    # File gone before it was read: skipped
     LEAVE = 3
 
 
 @dataclass
 class HeartbeatRecord(ABC):
+    """
+    Heartbeat file content, base class of one class per file format version
+    """
+
+    # File format version
     version: int
 
     @abstractmethod
     def _updates(self) -> List[Optional[HeartbeatUpdate]]:
-        pass
+        """Converts the record into updates, `None` for threads that are not monitored
+
+        Returns:
+            List[Optional[HeartbeatUpdate]]: one entry per thread of the record
+        """
 
     @classmethod
     @abstractmethod
     def from_dict(cls, data: Dict[str, Any]) -> "HeartbeatRecord":
-        pass
+        """Creates the record from the JSON content of a heartbeat file
+
+        Args:
+            data (Dict[str, Any]): JSON object of the file
+
+        Returns:
+            HeartbeatRecord: record of the file format version
+        """
 
     def updates(self) -> List[HeartbeatUpdate]:
+        """Updates of the monitored threads of the record
+
+        Returns:
+            List[HeartbeatUpdate]: updates without the threads that are not monitored
+        """
         return [one_update for one_update in self._updates() if one_update is not None]
 
     def process_update(
@@ -88,14 +118,42 @@ class HeartbeatRecord(ABC):
         uptime: float,
         sequence: int,
     ) -> Optional[HeartbeatUpdate]:
+        """Converts one thread of a container into an update of its process
+
+        Thread to process mapping:
+            * metadata: `MetaColect` -> metadata, `HomeKeep` and `MainThread` -> homekeeping
+            * udpping: `MainThread` -> container, `UdpSend<instance>` -> sender-<instance>,
+              `UdpRecv<instance>-<extra>` -> receiver-<instance> with extra
+            * mqtt: `MainThread` -> container, `MqttClient` -> mqtt
+            * speedtest, netperfmeter, traceroute: `MainThread` -> container
+
+        Args:
+            node_id (int): node identifier
+            start_ts (datetime): start timestamp of the container (UTC)
+            container (str): container name
+            version (str): container version (build name/tag)
+            thread (str): thread name reported by the container
+            seen_ts (datetime): timestamp of the heartbeat (UTC)
+            uptime (float): uptime in seconds
+            sequence (int): heartbeat sequence number
+
+        Raises:
+            ValueError: container is not a `DockerContainer`
+
+        Returns:
+            Optional[HeartbeatUpdate]: update of the process, None for a thread that is not monitored or when the
+            whole hours between start and heartbeat reach the sequence number
+        """
         process: Optional[str] = None
         extra: Optional[str] = None
 
+        # 1. Validate container
         try:
             container: DockerContainer = DockerContainer(container)
         except ValueError:
             raise ValueError(f"Unsupported container for monitoring {container}")
 
+        # 2. Map thread to process
         if container == DockerContainer.METADATA:
             if thread == "MetaColect":
                 process = "metadata"
@@ -141,8 +199,9 @@ class HeartbeatRecord(ABC):
                 process = "container"
             else:
                 return None
-        uptime_whole_hours: float = floor((seen_ts - start_ts).total_seconds() / 3600)
 
+        # 3. Skip when the whole hours between start and heartbeat reach the sequence number
+        uptime_whole_hours: float = floor((seen_ts - start_ts).total_seconds() / 3600)
         if uptime_whole_hours >= sequence:
             return None
 
@@ -160,17 +219,47 @@ class HeartbeatRecord(ABC):
 
 @dataclass
 class HeartbeatRecordv1(HeartbeatRecord):
+    """
+    Heartbeat file content of file format version 1
+
+    Example:
+        ```json
+        {"node_id": 7056, "start_ts": "2026-10-13T08:59:50.489892", "seen_ts": "2026-11-06T09:00:00.000333",
+         "container_name": "udpping", "container_version": "electro-2-2-5", "uptime": 2073609.510372,
+         "threads": ["MainThread", "UdpSend10506", "UdpRecv10506-313741"], "sequence": 589, "version": 1}
+        ```
+    """
+
+    # Node identifier
     node_id: int
+    # Start timestamp of the container (UTC)
     start_ts: datetime
+    # Timestamp of the heartbeat (UTC)
     seen_ts: datetime
+    # Container name
     container_name: str
+    # Container version (build name/tag)
     container_version: str
+    # Uptime in seconds
     uptime: float
+    # Running threads
     threads: List[str]
+    # Heartbeat sequence number
     sequence: int
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "HeartbeatRecordv1":
+        """Creates the record from the JSON content of a version 1 heartbeat file
+
+        Args:
+            data (Dict[str, Any]): JSON object of the file
+
+        Raises:
+            KeyError: a required field is missing
+
+        Returns:
+            HeartbeatRecordv1: record with timestamps normalized to naive UTC
+        """
         return cls(
             node_id=data["node_id"],
             start_ts=dt_functions.normalize_to_date_time_utc(data["start_ts"]),
@@ -184,6 +273,11 @@ class HeartbeatRecordv1(HeartbeatRecord):
         )
 
     def _updates(self) -> List[Optional[HeartbeatUpdate]]:
+        """Converts every thread of the record (see `HeartbeatRecord.process_update`)
+
+        Returns:
+            List[Optional[HeartbeatUpdate]]: one entry per thread, None for threads that are not monitored
+        """
         return [
             self.process_update(
                 node_id=self.node_id,
@@ -204,6 +298,13 @@ RECORD_VERSIONS: Dict[int, type] = {1: HeartbeatRecordv1}
 
 
 def _log_failure(message: str, file_path: Path, error: Exception) -> None:
+    """Logs a file failure: the reason at info, the traceback at debug level
+
+    Args:
+        message (str): what failed
+        file_path (Path): heartbeat file
+        error (Exception): raised exception
+    """
     logging.info(f"-- {message} {file_path}: {error}")
     for line in traceback.format_exc().splitlines():
         logging.debug(f"---- {line}")
@@ -212,13 +313,23 @@ def _log_failure(message: str, file_path: Path, error: Exception) -> None:
 def process_heartbeat_file(
     file_path: Path,
 ) -> Tuple[HeartbeatFileStatus, Optional[List[HeartbeatUpdate]]]:
-    """Reads one heartbeat file: GOOD with its updates (possibly none), BAD when it cannot be read or has an
-    unsupported version or container, LEAVE when the file is gone."""
+    """Reads one heartbeat file and converts it into updates
+
+    Args:
+        file_path (Path): heartbeat file
+
+    Returns:
+        Tuple[HeartbeatFileStatus, Optional[List[HeartbeatUpdate]]]: GOOD with the updates of the file (possibly none),
+        BAD with None when the file cannot be read (e.g. an unfinished transfer) or has an unsupported version or
+        container, LEAVE with None when the file is gone
+    """
     logging.debug(f"-- Processing {file_path}")
 
+    # 1. File gone in the meantime
     if not file_path.is_file():
         return (HeartbeatFileStatus.LEAVE, None)
 
+    # 2. Read xz compressed JSON
     try:
         with lzma.open(file_path, "rt", encoding="utf-8") as file_descriptor:
             data: Any = json.load(file_descriptor)
@@ -230,11 +341,13 @@ def process_heartbeat_file(
         logging.info(f"-- Malformed json in file {file_path}")
         return (HeartbeatFileStatus.BAD, None)
 
+    # 3. Select the record class of the file format version
     record_class: Optional[type] = RECORD_VERSIONS.get(data.get("version"))
     if record_class is None:
         logging.info(f"-- Missing or unsupported version {data.get('version')!r} in {file_path}")
         return (HeartbeatFileStatus.BAD, None)
 
+    # 4. Convert into updates (missing fields, unsupported container -> BAD)
     try:
         updates: List[HeartbeatUpdate] = record_class.from_dict(data).updates()
     except Exception as error:
@@ -247,8 +360,15 @@ def process_heartbeat_file(
 
 
 def heartbeat_files(data_dir: Path) -> List[Path]:
-    """Heartbeat files of all nodes present in the inbox, oldest creation timestamp (from the name) first. Only complete
-    names match: rsync's hidden temporary files (`.heartbeat_...json.xz.<random>`) are never selected."""
+    """Lists the heartbeat files of all nodes present in the inbox
+
+    Args:
+        data_dir (Path): inbox, <data-dir>/<node>/heartbeats/<YYYY-MM-DD>/heartbeat_<container>_<ts>.json.xz
+
+    Returns:
+        List[Path]: complete heartbeat files, oldest creation timestamp (from the name) first; rsync's hidden temporary
+        files are never listed
+    """
     selected: List[Tuple[datetime, Path]] = []
     for file_path in data_dir.glob("*/heartbeats/*/heartbeat_*.json.xz"):
         match = FILE_NAME.fullmatch(file_path.name)
@@ -260,16 +380,25 @@ def heartbeat_files(data_dir: Path) -> List[Path]:
 def process_heartbeat_files(
     file_paths: List[Path],
 ) -> Tuple[Counter, List[HeartbeatUpdate], List[Path]]:
-    """Processes the files in the given order (oldest first): counts the files per (status, container of the file
-    name), keeps the last update per primary key of `container_rawdata` and lists the GOOD files."""
+    """Processes heartbeat files in the given order (oldest first)
+
+    Args:
+        file_paths (List[Path]): heartbeat files, oldest first
+
+    Returns:
+        Tuple[Counter, List[HeartbeatUpdate], List[Path]]: file count per (status name, container of the file name),
+        the last update per primary key of `container_rawdata`, the GOOD files
+    """
     file_counts: Counter = Counter()
     latest: Dict[tuple, HeartbeatUpdate] = {}
     good_files: List[Path] = []
     for file_path in file_paths:
+        # 1. Read the file
         status, updates = process_heartbeat_file(file_path=file_path)
         file_counts[(status.name, FILE_NAME.fullmatch(file_path.name)["container"])] += 1
         if status == HeartbeatFileStatus.GOOD:
             good_files.append(file_path)
+        # 2. Keep the last update per key (files are processed oldest first)
         for update in updates or []:
             key: tuple = (update.node_id, update.start_ts, update.container, update.version, update.process)
             latest[key] = update
@@ -334,6 +463,15 @@ def update_heartbeat_status(updates: List[HeartbeatUpdate]) -> None:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    """Batch entry point `container-status-importer`
+
+    Args:
+        argv (Optional[List[str]], optional): command line arguments. Defaults to None (sys.argv).
+
+    Returns:
+        int: exit code 0; a failed database write raises before any file is deleted
+    """
+    # 1. Arguments
     parser = argparse.ArgumentParser(description="Import NNE container heartbeat files into container_rawdata")
     parser.add_argument("--data-dir", type=Path, default=Path("/nne/data"), help="node data (default /nne/data)")
     parser.add_argument(
@@ -345,8 +483,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # 2. Process all files of the inbox
     file_counts, updates, good_files = process_heartbeat_files(heartbeat_files(data_dir=args.data_dir))
 
+    # 3. Summary
     print(f"Heartbeat files in {args.data_dir}:")
     for (status, container), count in sorted(file_counts.items()):
         print(f"  {status:5} {container:13} {count}")
@@ -355,6 +495,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     for (container, process), count in sorted(process_counts.items()):
         print(f"  {container:13} {process:12} {count}")
 
+    # 4. Write and delete the GOOD files (dry run: nothing)
     if args.write is None:
         print("Dry run: nothing written, no file deleted")
         return 0
