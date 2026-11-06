@@ -1,0 +1,25 @@
+# Local test database for the importer (same server as production: Apollo 10.11.14-MariaDB)
+# Run using `docker compose --file docker/db.compose.yaml up --detach --wait`
+# Own project, container, volume and port (23307), so it runs next to the nnedbtools test database (23306)
+name: nne-container-status-importer
+services:
+  db:
+    image: mariadb:10.11.14
+    environment:
+      # root username is root
+      - MARIADB_ROOT_PASSWORD=password
+      # test report schema, target of `--write .db_env_test`
+      - MARIADB_DATABASE=report_test
+    container_name: container-status-db
+    volumes:
+      - db:/var/lib/mysql
+    ports:
+      - "127.0.0.1:23307:3306"
+    # ready when server accepts connections and InnoDB is initialized
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+volumes:
+  db:

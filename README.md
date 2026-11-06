@@ -28,3 +28,17 @@ uv pip install --python .venv/bin/python "nnedbtools @ git+ssh://git@github.com/
 ```
 
 `.venv` is ignored by git. Another nnedbtools version: rerun the install command with another commit or tag.
+
+## Local test import
+
+A local MariaDB (same server version as production) in Docker on `127.0.0.1:23307`, schema `report_test`, and a copy of
+the heartbeat files in `data/` (git-ignored):
+
+```sh
+docker compose --file docker/db.compose.yaml up --detach --wait
+rsync -a -m --include='/*/' --include='/*/heartbeats/***' --exclude='*' oculus:/nne/data/ data/
+container-status-importer --data-dir data --since 2026-04-08 --write .db_env_test
+```
+
+`.db_env_test` (git-ignored) holds the database settings: every host is `127.0.0.1:23307`, user `root`, password
+`password` (see `docker/db.compose.yaml`), report and nne schema `report_test`.
