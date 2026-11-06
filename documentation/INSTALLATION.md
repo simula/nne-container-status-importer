@@ -72,3 +72,36 @@ less /var/log/nne-container-status-importer/importer.log      # log of the runs
 
 A run outside the schedule: `sudo systemctl start nne-container-status-importer.service`. Another notification address:
 change `--notify` in the service file, copy it again and run `sudo systemctl daemon-reload`.
+
+### First run
+
+The first run imports everything in the inbox (on oculus about 1.6 million files, a few minutes) and deletes the
+imported (GOOD) files from `/nne/data`; they cannot be restored. Install the units, start one run without the timer and
+follow it live:
+
+```sh
+cd /nne/nne-container-status-importer
+sudo cp deploy/nne-container-status-importer.service deploy/nne-container-status-importer.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl start --no-block nne-container-status-importer.service    # returns at once, the run continues
+sudo tail -F /var/log/nne-container-status-importer/importer.log          # Ctrl+C ends only the tail, not the run
+```
+
+The log shows the start, the nnedbtools connection, the BAD files with their reason and "Run finished" with the runtime;
+while the files are read it stays quiet. The summary with the counts is in the journal, in a second terminal:
+`sudo journalctl -fu nne-container-status-importer.service`. `sudo systemctl status nne-container-status-importer.service`
+shows whether the run is still active. If the run is right, start the hourly runs:
+`sudo systemctl enable --now nne-container-status-importer.timer`.
+
+### Update
+
+```sh
+cd /nne/nne-container-status-importer
+git pull
+UV_PYTHON_INSTALL_DIR=/opt/uv/python uv pip install --python .venv/bin/python .
+# only if deploy/ changed:
+sudo cp deploy/nne-container-status-importer.service deploy/nne-container-status-importer.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+```
+
+The next scheduled run uses the new version; a running run finishes with the old one.
