@@ -1,8 +1,8 @@
 """Import of NNE container heartbeat files into the report table `container_rawdata` (hourly batch).
 
 Heartbeat files: <data-dir>/<node>/heartbeats/<YYYY-MM-DD>/heartbeat_<container>_<YYYYMMDDTHHMMSS>.json.xz, times in
-UTC. Files are selected by the timestamp in their name. Writing is an upsert (`update_heartbeat_status`), so a file
-processed again does no harm, and no file is moved.
+UTC. The data directory is the inbox the nodes deliver into with rsync: every file present is processed, oldest creation
+timestamp (from the name) first, and the GOOD files are deleted after the database commit.
 """
 
 import argparse
@@ -14,7 +14,7 @@ import traceback
 from abc import ABC, abstractmethod
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from enum import Enum
 from math import floor
 from pathlib import Path
@@ -246,37 +246,34 @@ def process_heartbeat_file(
     return (HeartbeatFileStatus.GOOD, updates)
 
 
-def heartbeat_files(data_dir: Path, since: datetime) -> List[Path]:
-    """Heartbeat files of all nodes whose name timestamp is at or after `since` (naive UTC), oldest first."""
-    first_day: str = since.date().isoformat()
+def heartbeat_files(data_dir: Path) -> List[Path]:
+    """Heartbeat files of all nodes present in the inbox, oldest creation timestamp (from the name) first. Only complete
+    names match: rsync's hidden temporary files (`.heartbeat_...json.xz.<random>`) are never selected."""
     selected: List[Tuple[datetime, Path]] = []
-    for day_directory in data_dir.glob("*/heartbeats/*"):
-        # Day directories are named YYYY-MM-DD: older days are skipped without listing them
-        if day_directory.name < first_day:
-            continue
-        for file_path in day_directory.glob("heartbeat_*.json.xz"):
-            match = FILE_NAME.fullmatch(file_path.name)
-            if match:
-                ts: datetime = datetime.strptime(match["ts"], "%Y%m%dT%H%M%S")
-                if ts >= since:
-                    selected.append((ts, file_path))
+    for file_path in data_dir.glob("*/heartbeats/*/heartbeat_*.json.xz"):
+        match = FILE_NAME.fullmatch(file_path.name)
+        if match:
+            selected.append((datetime.strptime(match["ts"], "%Y%m%dT%H%M%S"), file_path))
     return [file_path for _, file_path in sorted(selected)]
 
 
 def process_heartbeat_files(
     file_paths: List[Path],
-) -> Tuple[Counter, List[HeartbeatUpdate]]:
+) -> Tuple[Counter, List[HeartbeatUpdate], List[Path]]:
     """Processes the files in the given order (oldest first): counts the files per (status, container of the file
-    name) and keeps the last update per primary key of `container_rawdata`."""
+    name), keeps the last update per primary key of `container_rawdata` and lists the GOOD files."""
     file_counts: Counter = Counter()
     latest: Dict[tuple, HeartbeatUpdate] = {}
+    good_files: List[Path] = []
     for file_path in file_paths:
         status, updates = process_heartbeat_file(file_path=file_path)
         file_counts[(status.name, FILE_NAME.fullmatch(file_path.name)["container"])] += 1
+        if status == HeartbeatFileStatus.GOOD:
+            good_files.append(file_path)
         for update in updates or []:
             key: tuple = (update.node_id, update.start_ts, update.container, update.version, update.process)
             latest[key] = update
-    return (file_counts, list(latest.values()))
+    return (file_counts, list(latest.values()), good_files)
 
 
 def update_heartbeat_status(updates: List[HeartbeatUpdate]) -> None:
@@ -339,21 +336,18 @@ def update_heartbeat_status(updates: List[HeartbeatUpdate]) -> None:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Import NNE container heartbeat files into container_rawdata")
     parser.add_argument("--data-dir", type=Path, default=Path("/nne/data"), help="node data (default /nne/data)")
-    window = parser.add_mutually_exclusive_group()
-    window.add_argument("--hours", type=int, default=2, help="files of the last N hours (default 2)")
-    window.add_argument("--since", type=datetime.fromisoformat, help="files from this UTC time, e.g. 2026-04-08")
     parser.add_argument(
         "--write",
         type=Path,
         metavar="DB_ENV",
-        help="write into container_rawdata with the database settings of this env file (default: dry run)",
+        help="write into container_rawdata with the database settings of this env file and delete the GOOD files "
+        "(default: dry run, nothing written or deleted)",
     )
     args = parser.parse_args(argv)
 
-    since: datetime = args.since or datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=args.hours)
-    file_counts, updates = process_heartbeat_files(heartbeat_files(data_dir=args.data_dir, since=since))
+    file_counts, updates, good_files = process_heartbeat_files(heartbeat_files(data_dir=args.data_dir))
 
-    print(f"Heartbeat files in {args.data_dir} since {since.isoformat()} UTC:")
+    print(f"Heartbeat files in {args.data_dir}:")
     for (status, container), count in sorted(file_counts.items()):
         print(f"  {status:5} {container:13} {count}")
     process_counts: Counter = Counter((u.container.value, u.process.split("-")[0]) for u in updates)
@@ -362,10 +356,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"  {container:13} {process:12} {count}")
 
     if args.write is None:
-        print("Dry run: nothing written")
+        print("Dry run: nothing written, no file deleted")
         return 0
     load_from_enviroment(db_config_file=str(args.write))
     update_heartbeat_status(updates=updates)
+    # Only after the commit: a failed write raises before any file is deleted
+    for file_path in good_files:
+        file_path.unlink(missing_ok=True)
+    print(f"Written: {len(updates)} updates; deleted: {len(good_files)} GOOD files")
     return 0
 
 

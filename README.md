@@ -37,8 +37,10 @@ the heartbeat files in `data/` (git-ignored):
 ```sh
 docker compose --file docker/db.compose.yaml up --detach --wait
 rsync -a -m --include='/*/' --include='/*/heartbeats/***' --exclude='*' oculus:/nne/data/ data/
-container-status-importer --data-dir data --since 2026-04-08 --write .db_env_test
+container-status-importer --data-dir data --write .db_env_test
 ```
+
+The write deletes the imported (GOOD) files from `data/`; copy them again with rsync for another run.
 
 `.db_env_test` (git-ignored) holds the database settings: every host is `127.0.0.1:23307`, user `root`, password
 `password` (see `docker/db.compose.yaml`), report and nne schema `report_test`.

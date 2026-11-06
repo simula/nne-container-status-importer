@@ -10,9 +10,11 @@ from pathlib import Path
 
 import pytest
 
+from container_status_importer import importer
 from container_status_importer.importer import (
     HeartbeatFileStatus,
     heartbeat_files,
+    main,
     process_heartbeat_file,
     process_heartbeat_files,
 )
@@ -96,18 +98,40 @@ def test_no_update_when_uptime_reaches_sequence(tmp_path):
     assert len(process_heartbeat_file(_write(tmp_path / "b.json.xz", record))[1]) == 2
 
 
-def test_selection_by_name_timestamp():
-    assert len(heartbeat_files(DATA, datetime(2026, 11, 6, 9))) == 6
-    assert heartbeat_files(DATA, datetime(2026, 11, 6, 9, 0, 1)) == []
+def test_selection_order_and_rsync_temporary_files(tmp_path):
+    day = tmp_path / "7056" / "heartbeats" / "2026-11-06"
+    day.mkdir(parents=True)
+    names = ["heartbeat_mqtt_20261106T100000.json.xz", "heartbeat_udpping_20261106T090000.json.xz",
+             ".heartbeat_mqtt_20261106T110000.json.xz.Xy12Ab"]
+    for name in names:
+        (day / name).write_bytes(b"")
+    assert [p.name for p in heartbeat_files(tmp_path)] == names[1::-1]
 
 
 def test_last_update_per_key(tmp_path):
     record = json.loads(lzma.decompress(_sample("mqtt").read_bytes()))
     record["seen_ts"] = "2026-11-06T10:00:00"
     later = _write(tmp_path / "heartbeat_mqtt_20261106T100000.json.xz", record)
-    file_counts, updates = process_heartbeat_files([_sample("mqtt"), later])
+    file_counts, updates, good_files = process_heartbeat_files([_sample("mqtt"), later])
     assert file_counts == {("GOOD", "mqtt"): 2}
     assert {(u.process, u.seen_ts) for u in updates} == {
         ("container", datetime(2026, 11, 6, 10)),
         ("mqtt", datetime(2026, 11, 6, 10)),
     }
+
+
+@pytest.mark.parametrize("write", [False, True], ids=["dry_run", "failed_write"])
+def test_files_kept_without_successful_write(tmp_path, monkeypatch, write):
+    good = tmp_path / "7056" / "heartbeats" / "2026-11-06" / _sample("mqtt").name
+    good.parent.mkdir(parents=True)
+    good.write_bytes(_sample("mqtt").read_bytes())
+    if write:
+        def fail(updates):
+            raise RuntimeError("database down")
+        monkeypatch.setattr(importer, "load_from_enviroment", lambda db_config_file: None)
+        monkeypatch.setattr(importer, "update_heartbeat_status", fail)
+        with pytest.raises(RuntimeError):
+            main(["--data-dir", str(tmp_path), "--write", "unused.env"])
+    else:
+        assert main(["--data-dir", str(tmp_path)]) == 0
+    assert good.exists()
