@@ -1,0 +1,21 @@
+[project]
+name = "nne-container-status-importer"
+version = "0.1.0"
+description = "Hourly import of NNE container heartbeat files into the report table container_rawdata"
+requires-python = ">=3.14"
+dependencies = [
+    "nnedbtools @ git+ssh://git@github.com/simula/nnedbtools.git@34228de",
+]
+
+[project.optional-dependencies]
+test = ["pytest==9.1.1"]
+
+[project.scripts]
+container-status-importer = "container_status_importer.importer:main"
+
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
